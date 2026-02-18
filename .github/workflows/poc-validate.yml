@@ -60,6 +60,12 @@ PY
         run: |
           anchor build --skip-lint
 
+      - name: Upload vulnerable SBF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbf-artifacts-vulnerable
+          path: target/deploy/*.so
+
       - name: Run PoC test (vulnerable)
         run: |
           cargo test -p tests --features poc_self_liquidation poc_test_self_liquidation_captures_bonus_positive -- --nocapture
@@ -68,6 +74,12 @@ PY
         run: |
           git checkout -- programs/vaults/src/utils/validate.rs || true
           anchor build --skip-lint
+
+      - name: Upload fixed SBF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbf-artifacts-fixed
+          path: target/deploy/*.so
 
       - name: Run regression test (fixed)
         run: |
