@@ -24,13 +24,29 @@ jobs:
       - name: Install Solana CLI (required for SBF build)
         run: |
           curl -sSfL https://release.solana.com/2.3.0/install | sh
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-          solana --version
+          # persist solana into subsequent steps
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          solana --version || true
 
       - name: Install Anchor CLI
         run: |
           cargo install anchor-cli --locked --version 0.32.0
           anchor --version
+
+      - name: CI diagnostics
+        run: |
+          echo "--- PATH ---";
+          echo "$PATH";
+          echo "--- which / versions ---";
+          which rustc || true; rustc --version || true;
+          which cargo || true; cargo --version || true;
+          which solana || true; solana --version || true;
+          which anchor || true; anchor --version || true;
+          echo "--- ensure cargo/solana in future steps ---";
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH || true;
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH || true;
+          ls -la "$HOME/.local/share/solana/install/active_release/bin" || true;
+          env | sort
 
       - name: Vulnerable run — remove mitigation and build
         run: |
