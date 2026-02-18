@@ -48,10 +48,18 @@ jobs:
           solana-cli-version: '2.3.0'
 
 
-      - name: Install Anchor CLI
+      - name: Install Anchor (action fallback)
+        uses: metadaoproject/setup-anchor@v3.4
+        with:
+          anchor-version: '0.32.0'
+          solana-cli-version: '2.3.0'
+          node-version: '20'
+
+      - name: Fallback: Install Anchor CLI (cargo)
+        if: always()
         run: |
-          cargo install anchor-cli --locked --version 0.32.0
-          anchor --version
+          cargo install anchor-cli --locked --version 0.32.0 || true
+          anchor --version || true
 
       - name: CI diagnostics
         run: |
