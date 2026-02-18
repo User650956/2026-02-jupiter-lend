@@ -76,6 +76,15 @@ jobs:
           ls -la "$HOME/.local/share/solana/install/active_release/bin" || true;
           env | sort
 
+      - name: Install build deps for SBF/Anchor
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y pkg-config libudev-dev libssl-dev clang cmake build-essential libclang-dev git python3
+          rustup target add bpfel-unknown-unknown || true
+          uname -a || true
+          clang --version || true
+          cmake --version || true
+
       - name: Vulnerable run — remove mitigation and build
         run: |
           # Temporarily remove the signer==recipient guard to demonstrate PoC
