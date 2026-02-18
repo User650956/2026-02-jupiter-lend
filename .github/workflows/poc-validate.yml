@@ -22,6 +22,8 @@ jobs:
           override: true
 
       - name: Install Solana CLI (required for SBF build)
+        id: install-solana
+        continue-on-error: true
         run: |
           set -euo pipefail
           SOL_VER=2.3.0
@@ -35,9 +37,16 @@ jobs:
               sleep 5
             fi
           done
-          # Persist solana into subsequent steps
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          # Persist solana into subsequent steps (if present)
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH || true
           solana --version || true
+
+      - name: Setup Solana (action fallback)
+        if: ${{ steps.install-solana.outcome != 'success' || !hashFiles('$HOME/.local/share/solana/install/active_release/bin/solana') }}
+        uses: metadaoproject/setup-solana@v1.0
+        with:
+          solana-cli-version: '2.3.0'
+
 
       - name: Install Anchor CLI
         run: |
