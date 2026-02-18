@@ -312,6 +312,14 @@ pub fn verify_liquidate<'info>(
         return Err(error!(ErrorCodes::VaultOracleNotValid));
     }
 
+    // Prevent obvious self-liquidation vector where signer == recipient.
+    // NOTE: this is a defensive mitigation — owners should not be able to liquidate
+    // their own positions and capture the liquidation premium. A follow-up
+    // hardening should validate position ownership during liquidation.
+    if ctx.accounts.signer.key() == ctx.accounts.to.key() {
+        return Err(error!(ErrorCodes::VaultSelfLiquidationNotAllowed));
+    }
+
     let new_branch = &ctx.accounts.new_branch.load()?;
     if new_branch.vault_id != vault_state.vault_id {
         return Err(error!(ErrorCodes::VaultInvalidVaultId));

@@ -89,6 +89,9 @@ pub enum ErrorCodes {
     #[msg(VAULT_INVALID_LIQUIDATION)]
     VaultInvalidLiquidation,
 
+    #[msg(VAULT_SELF_LIQUIDATION_NOT_ALLOWED)]
+    VaultSelfLiquidationNotAllowed,
+
     #[msg(VAULT_NOTHING_TO_REBALANCE)]
     VaultNothingToRebalance,
 

@@ -255,6 +255,153 @@ mod tests {
     // liquidateSingleFromPerfectTickTillBetween Tests
     // ========================================================================
 
+    // PoC: owner self-liquidation captures liquidation premium
+    // Reproduces scenario where position owner calls `liquidate` on their own position
+    // and uses their borrowed tokens to buy collateral at the liquidation penalty price.
+    #[test]
+    fn test_self_liquidation_captures_bonus_positive() {
+        let mut fixture = setup_vault_fixture();
+        let vault_id = 1u16; // WSOL / USDC
+        let positive_tick = true;
+
+        let supply_decimals = fixture.get_vault_supply_token_decimals(vault_id);
+        let borrow_decimals = fixture.get_vault_borrow_token_decimals(vault_id);
+
+        // Create a position that will be liquidatable after a price crash
+        let collateral = 10_000_i128 * 10_i128.pow(supply_decimals as u32);
+        let debt = 7_990_i128 * 10_i128.pow(borrow_decimals as u32);
+
+        let alice = fixture.liquidity.alice.insecure_clone();
+
+        let oracle_price = DEFAULT_ORACLE_PRICE;
+        fixture
+            .set_oracle_price(oracle_price, positive_tick)
+            .expect("Failed to set oracle price");
+
+        // Create position for alice
+        create_checked_position(&mut fixture, vault_id, collateral, debt, &alice);
+
+        // Crash oracle price so position becomes liquidatable
+        fixture
+            .set_oracle_price_percent_decrease(oracle_price, positive_tick, 200)
+            .expect("Failed to decrease oracle price");
+
+        let supply_mint = fixture.get_vault_supply_token(vault_id);
+        let borrow_mint = fixture.get_vault_borrow_token(vault_id);
+
+        // Snapshot alice wallet balances (supply + borrow)
+        let alice_supply_before = fixture.balance_of(&alice.pubkey(), supply_mint);
+        let alice_borrow_before = fixture.balance_of(&alice.pubkey(), borrow_mint);
+
+        // Normalize to 6-decimal USDC-equivalent (DEFAULT_ORACLE_PRICE == 1e8 => price = 1)
+        let alice_supply_before_6dec: u128 = if supply_decimals >= 6 {
+            (alice_supply_before as u128) / 10u128.pow((supply_decimals - 6) as u32)
+        } else {
+            (alice_supply_before as u128) * 10u128.pow((6 - supply_decimals) as u32)
+        };
+        let wallet_before_6dec: u128 = alice_supply_before_6dec + alice_borrow_before as u128;
+
+            // Self-liquidate: alice acts as liquidator and recipient
+        let liquidate_amt = 3_000_u64 * 10_u64.pow(borrow_decimals as u32);
+
+        // Expect this to be rejected after the self-liquidation mitigation
+        let res = fixture.liquidate_vault(&crate::vaults::fixture::LiquidateVars {
+            vault_id,
+            user: &alice,
+            to: &alice,
+            debt_amount: liquidate_amt,
+            col_per_unit_debt: 0,
+            absorb: false,
+        });
+
+        assert!(res.is_err(), "Self-liquidation should be disallowed");
+
+    // ---------------------------------------------------------------------
+    // PoC (feature-gated): runs *only* when the `poc_self_liquidation` feature
+    // is enabled (used by CI to demonstrate the vulnerability prior to fix)
+    // ---------------------------------------------------------------------
+    #[cfg(feature = "poc_self_liquidation")]
+    #[test]
+    fn poc_test_self_liquidation_captures_bonus_positive() {
+        let mut fixture = setup_vault_fixture();
+        let vault_id = 1u16; // WSOL / USDC
+        let positive_tick = true;
+
+        let supply_decimals = fixture.get_vault_supply_token_decimals(vault_id);
+        let borrow_decimals = fixture.get_vault_borrow_token_decimals(vault_id);
+
+        // Create a position that will be liquidatable after a price crash
+        let collateral = 10_000_i128 * 10_i128.pow(supply_decimals as u32);
+        let debt = 7_990_i128 * 10_i128.pow(borrow_decimals as u32);
+
+        let alice = fixture.liquidity.alice.insecure_clone();
+
+        let oracle_price = DEFAULT_ORACLE_PRICE;
+        fixture
+            .set_oracle_price(oracle_price, positive_tick)
+            .expect("Failed to set oracle price");
+
+        // Create position for alice
+        create_checked_position(&mut fixture, vault_id, collateral, debt, &alice);
+
+        // Crash oracle price so position becomes liquidatable
+        fixture
+            .set_oracle_price_percent_decrease(oracle_price, positive_tick, 200)
+            .expect("Failed to decrease oracle price");
+
+        let supply_mint = fixture.get_vault_supply_token(vault_id);
+        let borrow_mint = fixture.get_vault_borrow_token(vault_id);
+
+        // Snapshot alice wallet balances (supply + borrow)
+        let alice_supply_before = fixture.balance_of(&alice.pubkey(), supply_mint);
+        let alice_borrow_before = fixture.balance_of(&alice.pubkey(), borrow_mint);
+
+        let alice_supply_before_6dec: u128 = if supply_decimals >= 6 {
+            (alice_supply_before as u128) / 10u128.pow((supply_decimals - 6) as u32)
+        } else {
+            (alice_supply_before as u128) * 10u128.pow((6 - supply_decimals) as u32)
+        };
+        let wallet_before_6dec: u128 = alice_supply_before_6dec + alice_borrow_before as u128;
+
+        // Self-liquidate: alice acts as liquidator and recipient (vulnerable path)
+        let (actual_col_amt, actual_debt_amt) =
+            perform_checked_liquidate(&mut fixture, vault_id, 3_000_u64 * 10_u64.pow(borrow_decimals as u32), &alice, false);
+
+        // Snapshot after
+        let alice_supply_after = fixture.balance_of(&alice.pubkey(), supply_mint);
+        let alice_borrow_after = fixture.balance_of(&alice.pubkey(), borrow_mint);
+
+        let alice_supply_after_6dec: u128 = if supply_decimals >= 6 {
+            (alice_supply_after as u128) / 10u128.pow((supply_decimals - 6) as u32)
+        } else {
+            (alice_supply_after as u128) * 10u128.pow((6 - supply_decimals) as u32)
+        };
+        let wallet_after_6dec: u128 = alice_supply_after_6dec + alice_borrow_after as u128;
+
+        // Owner should receive collateral and pay down debt
+        assert!(alice_supply_after > alice_supply_before, "Alice should receive collateral");
+        assert!(alice_borrow_after < alice_borrow_before, "Alice should pay debt tokens");
+
+        // Event values must match token-account deltas
+        assert_eq!(
+            (alice_supply_after - alice_supply_before) as u128,
+            actual_col_amt,
+            "Collateral received must match event"
+        );
+        assert_eq!(
+            (alice_borrow_before - alice_borrow_after) as u128,
+            actual_debt_amt,
+            "Debt paid must match event"
+        );
+
+        // Because liquidation_penalty > 0, owner should gain net value by self-liquidating
+        assert!(
+            wallet_after_6dec > wallet_before_6dec,
+            "Owner wallet USD-equivalent value should increase after self-liquidation (captures premium)"
+        );
+    }
+    }
+
     fn liquidate_from_single_perfect_tick_till_between(positive_tick: bool) {
         let mut fixture = setup_vault_fixture();
         let vault_id = if positive_tick { 1u16 } else { 2u16 };
