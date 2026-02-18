@@ -23,8 +23,19 @@ jobs:
 
       - name: Install Solana CLI (required for SBF build)
         run: |
-          curl -sSfL https://release.solana.com/2.3.0/install | sh
-          # persist solana into subsequent steps
+          set -euo pipefail
+          SOL_VER=2.3.0
+          echo "Installing Solana $SOL_VER (with retries)"
+          for i in 1 2 3 4 5; do
+            if curl -sSfL "https://release.solana.com/${SOL_VER}/install" | sh; then
+              echo "solana installer succeeded"
+              break
+            else
+              echo "solana installer failed (attempt ${i}), retrying in 5s..."
+              sleep 5
+            fi
+          done
+          # Persist solana into subsequent steps
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
           solana --version || true
 
